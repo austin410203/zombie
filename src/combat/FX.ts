@@ -92,7 +92,7 @@ export class FX {
     this.tracers.frustumCulled = false;
     scene.add(this.tracers);
     // reusable flash lights (muzzle / explosion)
-    for (let i = 0; i < (mobile ? 2 : 4); i++) {
+    for (let i = 0; i < (mobile ? 1 : 2); i++) {
       const l = new THREE.PointLight(0xffa040, 0, 14, 1.5); scene.add(l); this.flashes.push({ light: l, t: 0 });
     }
   }

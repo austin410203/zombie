@@ -50,6 +50,8 @@ export class Game {
   private deadTimer = 0;
   private finale = 0;
   private pixelRatio: number;
+  fps = 60;
+  private frame = 0;
   private frameAcc = 0; private frameN = 0;
   private buildings: THREE.Mesh[] = [];
   private save: Save | null = null;
@@ -69,8 +71,11 @@ export class Game {
     this.cam = new CameraRig(innerWidth / innerHeight);
     this.city = new City(this.scene, this.mobile);
     this.city.group.traverse((o) => { if (o.userData.building) this.buildings.push(o as THREE.Mesh); });
-    let q: Quality = this.mobile ? 'medium' : 'high';
+    let q: Quality = 'medium'; // HQ (AO + depth of field) is opt-in via the button / V
     try { const saved = localStorage.getItem('outbreak-nyc:quality') as Quality | null; if (saved) q = saved; } catch { /* noop */ }
+    this.pixelRatio = PostFX.dpr(q, this.mobile);
+    this.renderer.setPixelRatio(this.pixelRatio);
+    this.renderer.shadowMap.autoUpdate = false; // refreshed every other frame in the loop
     this.post = new PostFX(this.renderer, this.scene, this.cam.camera, q);
     this.loadEnvironment();
     this.fx = new FX(this.scene, this.mobile);
@@ -181,6 +186,8 @@ export class Game {
 
   begin(load: boolean) {
     this.audio.start();
+    // compile every shader up-front so the first explosion / zombie / car doesn't hitch
+    try { this.renderer.compile(this.scene, this.cam.camera); } catch { /* noop */ }
     let mission = 0;
     if (load) {
       try { this.save = JSON.parse(localStorage.getItem(SAVE_KEY)!); } catch { this.save = null; }
@@ -229,10 +236,18 @@ export class Game {
     } catch (e) { console.warn('HDRI failed', e); }
   }
 
+  private applyQuality(q: Quality) {
+    this.pixelRatio = PostFX.dpr(q, this.mobile);
+    this.renderer.setPixelRatio(this.pixelRatio);
+    this.post.setQuality(q);
+    this.resize();
+    const b = document.getElementById('btn-quality'); if (b) b.textContent = q[0].toUpperCase() + 'Q';
+  }
+
   cycleQuality() {
     const order: Quality[] = ['high', 'medium', 'low'];
     const q = order[(order.indexOf(this.post.quality) + 1) % 3];
-    this.post.setQuality(q);
+    this.applyQuality(q);
     try { localStorage.setItem('outbreak-nyc:quality', q); } catch { /* noop */ }
     this.hud.toast(`${tr({ en: 'Graphics', zh: '畫質' })}: ${{ high: tr({ en: 'High', zh: '高' }), medium: tr({ en: 'Medium', zh: '中' }), low: tr({ en: 'Low', zh: '低' }) }[q]}`);
     const b = document.getElementById('btn-quality'); if (b) b.textContent = q[0].toUpperCase() + 'Q';
@@ -442,6 +457,7 @@ export class Game {
     this.cam.update(paused ? 0 : dt, this.driving ? this.driving.position.clone().add(new THREE.Vector3(Math.sin(this.driving.heading), 0, Math.cos(this.driving.heading)).multiplyScalar(this.driving.speed * 0.25)) : this.player.position, this.buildings);
     if (this.shakeAmt > 0.01) { this.cam.camera.position.x += (Math.random() - 0.5) * this.shakeAmt; this.cam.camera.position.y += (Math.random() - 0.5) * this.shakeAmt; }
     this.shakeAmt *= Math.exp(-dt * 8);
+    if ((this.frame++ & 1) === 0) this.renderer.shadowMap.needsUpdate = true;
     this.post.render(dt, this.cam.camera.position.distanceTo(this.driving ? this.driving.position : this.player.position), Math.min(1, this.player.hurtFlash));
     this.adaptQuality(dt);
   };
@@ -581,7 +597,10 @@ export class Game {
     if (this.frameAcc < 2) return;
     const avg = this.frameAcc / this.frameN;
     this.frameAcc = 0; this.frameN = 0;
-    if (avg > 1 / 28 && this.post.quality === 'high') { this.post.setQuality('medium'); return; }
-    if (avg > 1 / 32 && this.pixelRatio > 0.8) { this.pixelRatio = Math.max(0.75, this.pixelRatio - 0.25); this.renderer.setPixelRatio(this.pixelRatio); this.resize(); }
+    this.fps = 1 / avg;
+    // step down: HQ → MQ → LQ → lower resolution (never automatically back up, to avoid oscillating)
+    if (avg > 1 / 40 && this.post.quality === 'high') { this.applyQuality('medium'); this.hud.toast(tr({ en: 'Graphics lowered for smoother play', zh: '已自動降低畫質以保持流暢' })); return; }
+    if (avg > 1 / 28 && this.post.quality === 'medium') { this.applyQuality('low'); this.hud.toast(tr({ en: 'Graphics lowered for smoother play', zh: '已自動降低畫質以保持流暢' })); return; }
+    if (avg > 1 / 26 && this.pixelRatio > 0.65) { this.pixelRatio = Math.max(0.6, this.pixelRatio - 0.15); this.renderer.setPixelRatio(this.pixelRatio); this.resize(); }
   }
 }

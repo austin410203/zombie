@@ -57,14 +57,14 @@ export class PostFX {
   private bokeh: BokehPass;
   private grade: ShaderPass;
 
-  constructor(private renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.PerspectiveCamera, quality: Quality) {
+  constructor(private renderer: THREE.WebGLRenderer, private scene: THREE.Scene, private camera: THREE.PerspectiveCamera, quality: Quality) {
     const size = renderer.getSize(new THREE.Vector2());
-    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: quality === 'high' ? 4 : 0 });
+    const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: 0 });
     this.composer = new EffectComposer(renderer, rt);
     this.composer.addPass(new RenderPass(scene, camera));
-    this.gtao = new GTAOPass(scene, camera, size.x, size.y);
+    this.gtao = new GTAOPass(scene, camera, size.x / 2, size.y / 2); // half-res AO
     this.gtao.blendIntensity = 0.85;
-    this.gtao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.4, thickness: 1.5, scale: 1.2, samples: 12 });
+    this.gtao.updateGtaoMaterial({ radius: 1.2, distanceExponent: 1.4, thickness: 1.5, scale: 1.2, samples: 8 });
     this.composer.addPass(this.gtao);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x, size.y), 0.65, 0.55, 0.82);
     this.composer.addPass(this.bloom);
@@ -77,18 +77,29 @@ export class PostFX {
     this.setQuality(quality);
   }
 
+  /** Max device-pixel-ratio per tier — the single biggest GPU cost on retina / phone screens */
+  static dpr(q: Quality, mobile: boolean) {
+    const cap = q === 'high' ? 1.5 : q === 'medium' ? (mobile ? 1.0 : 1.25) : (mobile ? 0.8 : 1.0);
+    return Math.min(devicePixelRatio, cap);
+  }
+
   setQuality(q: Quality) {
     this.quality = q;
     this.gtao.enabled = q === 'high';
     this.bokeh.enabled = q === 'high';
     this.bloom.enabled = q !== 'low';
-    this.bloom.resolution.set(q === 'high' ? 1 : 0.5, 1);
     this.renderer.shadowMap.enabled = q !== 'low';
+    this.renderer.shadowMap.needsUpdate = true;
+    const s = this.renderer.getSize(new THREE.Vector2());
+    this.setSize(s.x, s.y);
   }
 
   setSize(w: number, h: number) {
+    this.composer.setPixelRatio(this.renderer.getPixelRatio());
     this.composer.setSize(w, h);
-    if (this.quality === 'medium') this.bloom.setSize(w / 2, h / 2);
+    // bloom is soft anyway: run it at half resolution
+    this.bloom.setSize(w * this.renderer.getPixelRatio() / 2, h * this.renderer.getPixelRatio() / 2);
+    this.gtao.setSize(w * this.renderer.getPixelRatio() / 2, h * this.renderer.getPixelRatio() / 2);
   }
 
   /** focus: distance from camera to the player; hurt 0..1 */
@@ -97,6 +108,7 @@ export class PostFX {
     u.uTime.value = (u.uTime.value + dt) % 100;
     u.uHurt.value = hurt;
     (this.bokeh.uniforms as Record<string, { value: number }>).focus.value = focus;
+    if (this.quality === 'low') { this.renderer.render(this.scene, this.camera); return; } // no post at all
     this.composer.render(dt);
   }
 }

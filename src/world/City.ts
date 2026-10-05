@@ -21,6 +21,27 @@ function cells(lines: number[], min: number, max: number) {
   return out;
 }
 
+/**
+ * Split instances into 40×40 tiles so each tile is its own InstancedMesh with a tight bounding sphere —
+ * the camera frustum then culls everything off-screen (a single map-wide InstancedMesh is never culled).
+ */
+function chunked(parent: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, mats: THREE.Matrix4[], cast = false, tile = 40) {
+  const buckets = new Map<string, THREE.Matrix4[]>();
+  const p = new THREE.Vector3();
+  for (const m of mats) {
+    p.setFromMatrixPosition(m);
+    const k = `${Math.floor(p.x / tile)},${Math.floor(p.z / tile)}`;
+    (buckets.get(k) ?? buckets.set(k, []).get(k)!).push(m);
+  }
+  for (const list of buckets.values()) {
+    const im = new THREE.InstancedMesh(geo, mat, list.length);
+    list.forEach((m, i) => im.setMatrixAt(i, m));
+    im.computeBoundingSphere();
+    im.castShadow = cast; im.receiveShadow = true;
+    parent.add(im);
+  }
+}
+
 // deterministic random so the city is identical every run
 let seed = 20260915;
 const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
@@ -30,7 +51,11 @@ export class City {
   group = new THREE.Group();
   collision = new CollisionWorld();
   sun!: THREE.DirectionalLight;
-  private fires: { light: THREE.PointLight; sprite: THREE.Sprite; base: number }[] = [];
+  private fires: { glow: THREE.Mesh; sprite: THREE.Sprite; base: number }[] = [];
+  private _glow?: THREE.Texture;
+  private glowTex() {
+    return (this._glow ??= canvasTexture(64, 64, (c) => { const g = c.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,120,40,0.7)'); g.addColorStop(1, 'rgba(255,80,20,0)'); c.fillStyle = g; c.fillRect(0, 0, 64, 64); }));
+  }
   private beacons: THREE.Mesh[] = [];
   private smoke!: THREE.Points;
   private t = 0;
@@ -76,9 +101,7 @@ export class City {
       dashes.push(m.clone().compose(new THREE.Vector3(x, 0.02, z), new THREE.Quaternion(), new THREE.Vector3(1.8, 1, 0.18)));
     }
     const dg = new THREE.PlaneGeometry(1, 1); dg.rotateX(-Math.PI / 2);
-    const inst = new THREE.InstancedMesh(dg, new THREE.MeshBasicMaterial({ color: 0xc9a227 }), dashes.length);
-    dashes.forEach((d, i) => inst.setMatrixAt(i, d));
-    this.group.add(inst);
+    chunked(this.group, dg, new THREE.MeshBasicMaterial({ color: 0xc9a227 }), dashes);
 
     // crosswalks
     const cw: THREE.Matrix4[] = [];
@@ -90,9 +113,7 @@ export class City {
         }
       }
     }
-    const cwi = new THREE.InstancedMesh(dg, new THREE.MeshBasicMaterial({ color: 0xbdbdbd, transparent: true, opacity: 0.55 }), cw.length);
-    cw.forEach((d, i) => cwi.setMatrixAt(i, d));
-    this.group.add(cwi);
+    chunked(this.group, dg, new THREE.MeshBasicMaterial({ color: 0xbdbdbd, transparent: true, opacity: 0.55 }), cw);
   }
 
   // ------------------------------------------------------------------ buildings
@@ -190,10 +211,7 @@ export class City {
   private instanced(id: PropId, mats: THREE.Matrix4[], cast = true) {
     if (!mats.length) return;
     const { geometry, material } = Assets.mesh(id);
-    const im = new THREE.InstancedMesh(geometry, material, mats.length);
-    mats.forEach((m, i) => im.setMatrixAt(i, m));
-    im.castShadow = cast; im.receiveShadow = true;
-    this.group.add(im);
+    chunked(this.group, geometry, material, mats, cast);
   }
 
   private buildStreetProps() {
@@ -208,16 +226,12 @@ export class City {
         heads.push(m.clone().makeTranslation(x + side * 5.3, 5.1, z));
       }
     }
-    if (Assets.ready) this.instanced('streetlight', lamps);
+    if (Assets.ready) this.instanced('streetlight', lamps, false);
     // fake light pools on the ground (cheap "lights" that bloom nicely)
     const poolTex = canvasTexture(64, 64, (c) => { const g = c.createRadialGradient(32, 32, 0, 32, 32, 32); g.addColorStop(0, 'rgba(255,190,110,0.55)'); g.addColorStop(1, 'rgba(255,170,90,0)'); c.fillStyle = g; c.fillRect(0, 0, 64, 64); });
     const pg = new THREE.PlaneGeometry(1, 1); pg.rotateX(-Math.PI / 2);
-    const pool = new THREE.InstancedMesh(pg, new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), pools.length);
-    pools.forEach((p, i) => pool.setMatrixAt(i, p));
-    this.group.add(pool);
-    const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.22, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.8, 1.25, 0.75) }), heads.length);
-    heads.forEach((p, i) => head.setMatrixAt(i, p));
-    this.group.add(head);
+    chunked(this.group, pg, new THREE.MeshBasicMaterial({ map: poolTex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }), pools);
+    chunked(this.group, new THREE.SphereGeometry(0.22, 8, 6), new THREE.MeshBasicMaterial({ color: new THREE.Color(1.8, 1.25, 0.75) }), heads);
 
     if (Assets.ready) {
       // traffic lights on intersection corners, hydrants / dumpsters / trash / benches on sidewalks
@@ -237,8 +251,8 @@ export class City {
         const mat = m.clone().compose(new THREE.Vector3(x, 0.16, z), Q(rot), new THREE.Vector3(4.5, 4.5, 4.5));
         if (k < 0.3) hy.push(mat); else if (k < 0.45) { du.push(mat); this.collision.addBox(x, z, 1.6, 1.6); } else if (k < 0.65) ta.push(mat); else if (k < 0.8) tb.push(mat); else be.push(mat);
       }
-      this.instanced('trafficlight_A', tl); this.instanced('firehydrant', hy); this.instanced('dumpster', du);
-      this.instanced('trash_A', ta); this.instanced('trash_B', tb); this.instanced('bench', be);
+      this.instanced('trafficlight_A', tl, false); this.instanced('firehydrant', hy, false); this.instanced('dumpster', du, false);
+      this.instanced('trash_A', ta, false); this.instanced('trash_B', tb, false); this.instanced('bench', be, false);
     }
 
     // abandoned / wrecked cars (static obstacles)
@@ -274,6 +288,7 @@ export class City {
       const car = Assets.prop(ids[Math.floor(rnd() * ids.length)], burnt);
       if (burnt) car.traverse((o) => { const mm = (o as THREE.Mesh).material as THREE.MeshStandardMaterial; if (mm?.isMeshStandardMaterial) { mm.color.multiplyScalar(0.18); mm.roughness = 0.95; } });
       car.scale.setScalar(4.7);
+      car.traverse((o) => { o.castShadow = false; });
       const g = new THREE.Group(); g.add(car);
       return g;
     }
@@ -294,10 +309,10 @@ export class City {
     });
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
     s.position.set(x, 1.8, z); s.scale.set(3, 3.5, 1);
-    const light = new THREE.PointLight(0xff7a2a, 30, 16, 1.6);
-    light.position.set(x, 2.5, z);
-    this.group.add(s, light);
-    this.fires.push({ light, sprite: s, base: 30 });
+    const glow = new THREE.Mesh(new THREE.CircleGeometry(5, 16), new THREE.MeshBasicMaterial({ map: this.glowTex(), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+    glow.rotation.x = -Math.PI / 2; glow.position.set(x, 0.06, z);
+    this.group.add(s, glow);
+    this.fires.push({ glow, sprite: s, base: 30 + this.fires.length });
   }
 
   // ------------------------------------------------------------------ landmarks
@@ -392,11 +407,8 @@ export class City {
       crowns.push(m.clone().compose(new THREE.Vector3(x, 3.4 * s, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, rnd() * 3, 0)), new THREE.Vector3(s, s * 1.2, s)));
       this.collision.circles.push({ x, z, r: 0.5 * s });
     }
-    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.22, 0.32, 2.4, 6), std(0x3a2618), trunks.length);
-    const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1.8, 0), std(0x2c4a22), crowns.length);
-    trunks.forEach((t, i) => trunk.setMatrixAt(i, t)); crowns.forEach((t, i) => crown.setMatrixAt(i, t));
-    trunk.castShadow = crown.castShadow = true;
-    this.group.add(trunk, crown);
+    chunked(this.group, new THREE.CylinderGeometry(0.22, 0.32, 2.4, 6), std(0x3a2618), trunks, false);
+    chunked(this.group, new THREE.IcosahedronGeometry(1.8, 0), std(0x2c4a22), crowns, true);
     // pond
     const pond = new THREE.Mesh(new THREE.CircleGeometry(9, 24), std(0x0e1e2a, { metalness: 0.8, roughness: 0.1 }));
     pond.rotation.x = -Math.PI / 2; pond.position.set(-40, 0.05, -125); this.group.add(pond);
@@ -430,10 +442,10 @@ export class City {
     this.group.add(new THREE.AmbientLight(0x3a2a30, 0.8));
     this.sun = new THREE.DirectionalLight(0xff9a6a, 2.2); // burning dusk
     this.sun.castShadow = true;
-    const s = this.mobile ? 1024 : 2048;
+    const s = this.mobile ? 1024 : 1536;
     this.sun.shadow.mapSize.set(s, s);
     const c = this.sun.shadow.camera;
-    c.left = -40; c.right = 40; c.top = 40; c.bottom = -40; c.near = 1; c.far = 160;
+    c.left = -32; c.right = 32; c.top = 32; c.bottom = -32; c.near = 10; c.far = 120;
     this.sun.shadow.bias = -0.0015; this.sun.shadow.normalBias = 0.05;
     this.group.add(this.sun, this.sun.target);
   }
@@ -457,7 +469,7 @@ export class City {
     this.sun.target.position.set(focus.x, 0, focus.z);
     for (const f of this.fires) {
       const k = 0.85 + Math.sin(this.t * 9 + f.base) * 0.08 + Math.sin(this.t * 23) * 0.05;
-      f.light.intensity = f.base * k;
+      (f.glow.material as THREE.MeshBasicMaterial).opacity = 0.75 + (k - 0.85) * 2;
       f.sprite.scale.set(3 * k, 3.6 * k, 1);
     }
     for (const b of this.beacons) b.visible = Math.sin(this.t * 4 + b.position.x) > 0;

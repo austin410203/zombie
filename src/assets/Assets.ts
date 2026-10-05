@@ -37,7 +37,7 @@ class AssetStore {
       if ((CHARACTERS as readonly string[]).includes(name)) {
         g.scene.traverse((o) => {
           if ((o as THREE.Mesh).isMesh && HIDE.test(o.name)) o.visible = false;
-          if ((o as THREE.Mesh).isMesh) { o.castShadow = false; o.receiveShadow = true; (o as THREE.Mesh).frustumCulled = false; }
+          if ((o as THREE.Mesh).isMesh) { o.castShadow = false; o.receiveShadow = true; }
         });
         const box = new THREE.Box3();
         g.scene.updateMatrixWorld(true);

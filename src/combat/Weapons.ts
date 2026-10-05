@@ -42,6 +42,11 @@ export class WeaponSystem {
   private grenadeGeo = new THREE.SphereGeometry(0.13, 6, 5);
   private shellGeo = new THREE.SphereGeometry(0.22, 8, 6);
   private acidGeo = new THREE.SphereGeometry(0.2, 6, 5);
+  private matShell = new THREE.MeshStandardMaterial({ color: 0x333333, emissive: 0xffa040, emissiveIntensity: 0.4 });
+  private matRocket = new THREE.MeshStandardMaterial({ color: 0x4a5a30, emissive: 0xff6a2a, emissiveIntensity: 0.4 });
+  private matGrenade = new THREE.MeshStandardMaterial({ color: 0x3a4a2a });
+  private matBomblet = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xff7020, emissiveIntensity: 0.5 });
+  private matAcid = new THREE.MeshBasicMaterial({ color: 0x9aff3a });
 
   constructor(private scene: THREE.Scene, private hooks: CombatHooks, private hand: THREE.Object3D) {
     this.give('bat'); this.give('pistol');
@@ -191,7 +196,7 @@ export class WeaponSystem {
         for (let i = 0; i < n; i++) {
           const [sx, sz] = rot((Math.random() - 0.5) * w.spread);
           const geo = w.kind === 'rocket' ? this.rocketGeo : w.kind === 'shell' ? this.shellGeo : this.grenadeGeo;
-          const mesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: w.kind === 'shell' ? 0x333333 : 0x4a5a30, emissive: w.color, emissiveIntensity: 0.4 }));
+          const mesh = new THREE.Mesh(geo, w.kind === 'shell' ? this.matShell : w.kind === 'rocket' ? this.matRocket : this.matGrenade);
           mesh.position.set(mx, 1.3, mz);
           this.scene.add(mesh);
           const vy = w.kind === 'grenade' ? (w.id === 'mortar' ? 13 : 5) : 0;
@@ -267,7 +272,7 @@ export class WeaponSystem {
 
   /** Thrown hand grenade */
   throwGrenade(x: number, z: number, dx: number, dz: number, dist: number) {
-    const mesh = new THREE.Mesh(this.grenadeGeo, new THREE.MeshStandardMaterial({ color: 0x3a4a2a }));
+    const mesh = new THREE.Mesh(this.grenadeGeo, this.matGrenade);
     mesh.position.set(x, 1.5, z);
     this.scene.add(mesh);
     const t = 1.0, sp = Math.min(22, dist) / t;
@@ -276,7 +281,7 @@ export class WeaponSystem {
 
   /** Spitter acid glob aimed at the player */
   spit(x: number, z: number, tx: number, tz: number, dmg: number) {
-    const mesh = new THREE.Mesh(this.acidGeo, new THREE.MeshBasicMaterial({ color: 0x9aff3a }));
+    const mesh = new THREE.Mesh(this.acidGeo, this.matAcid);
     mesh.position.set(x, 1.4, z);
     this.scene.add(mesh);
     const dx = tx - x, dz = tz - z, d = Math.hypot(dx, dz) || 1, sp = 13;
@@ -348,7 +353,7 @@ export class WeaponSystem {
           if (p.split && p.vel.y < 0) {
             for (let i = 0; i < p.split; i++) {
               const a = (i / p.split) * Math.PI * 2;
-              const m = new THREE.Mesh(this.grenadeGeo, new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xff7020, emissiveIntensity: 0.5 }));
+              const m = new THREE.Mesh(this.grenadeGeo, this.matBomblet);
               m.position.copy(p.pos); this.scene.add(m);
               this.projs.push({ kind: 'bomblet', mesh: m, pos: m.position, vel: new THREE.Vector3(p.vel.x + Math.cos(a) * 3.5, 0, p.vel.z + Math.sin(a) * 3.5), life: 3, dmg: p.dmg, blast: p.blast });
             }

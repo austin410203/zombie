@@ -121,8 +121,13 @@ export class Zombie {
       const cur = this.rig.object.rotation.y;
       this.rig.object.rotation.y = cur + Math.atan2(Math.sin(yaw - cur), Math.cos(yaw - cur)) * Math.min(1, dt * 6);
     }
-    this.rig.update(dt, Math.hypot(mx, mz) * sp / 2);
+    // animation LOD: far zombies update their skeleton at 1/3 rate
+    this.animAcc += dt;
+    const far = Math.abs(dx) > 22 || Math.abs(dz) > 22;
+    if (!far || ++this.animTick % 3 === 0) { this.rig.update(this.animAcc, Math.hypot(mx, mz) * sp / 2); this.animAcc = 0; }
   }
+  private animAcc = 0;
+  private animTick = Math.floor(Math.random() * 3);
 
   /** Returns true if this hit killed it */
   damage(amount: number, dirX = 0, dirZ = 0, knock = 0) {
@@ -153,7 +158,7 @@ export class ZombieManager {
   private spawnCd = 0;
 
   constructor(private scene: THREE.Scene, private world: CollisionWorld, private isOpen: (x: number, z: number) => boolean, mobile: boolean) {
-    this.max = mobile ? 22 : 34;
+    this.max = mobile ? 14 : 24;
   }
 
   spawn(type: ZType, x: number, z: number) {
