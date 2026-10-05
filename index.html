@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#120c0a" />
+  <title>Outbreak: NYC 2026</title>
+  <link rel="icon" type="image/svg+xml" href="./icons/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Barlow+Condensed:wght@500;600;700&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+TC:wght@500;700;900&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="scene"></canvas>
+    <div id="hurt"></div>
+    <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+
+    <div id="hud" class="hidden">
+      <!-- mission -->
+      <div class="mission panel">
+        <div class="m-kicker mono"><span data-i18n="hud.mission">MISSION</span> <b id="m-num">1/7</b></div>
+        <div class="m-title" id="m-title">Wake-Up Call</div>
+        <div class="m-obj"><span class="dot"></span><span id="m-obj"></span></div>
+        <div class="m-prog mono" id="m-prog"></div>
+      </div>
+
+      <!-- top right -->
+      <div class="tr">
+        <canvas id="minimap" width="200" height="200"></canvas>
+        <div class="tr-buttons">
+          <div class="kills mono"><span data-i18n="hud.kills">KILLS</span> <b id="kills">0</b></div>
+          <button class="icon-btn lang-toggle mono" id="btn-lang" data-i18n-title="hud.lang">中文</button>
+          <button class="icon-btn" id="btn-sound" data-i18n-title="hud.sound">🔊</button>
+          <button class="icon-btn" id="btn-help" data-i18n-title="hud.help">?</button>
+        </div>
+      </div>
+
+      <div id="boss" class="boss hidden">
+        <div class="boss-name" id="boss-name">THE ABOMINATION</div>
+        <div class="boss-bar"><i id="boss-hp"></i></div>
+      </div>
+
+      <div id="radio" class="radio hidden">
+        <div class="radio-head mono">◉ DISPATCH · CH 7</div>
+        <div class="radio-text" id="radio-text"></div>
+      </div>
+
+      <!-- vitals -->
+      <div class="vitals panel">
+        <div class="bar-row"><label class="mono" data-i18n="hud.hp">HEALTH</label><div class="bar hp"><i id="hp-bar"></i></div><b class="mono" id="hp-val">100</b></div>
+        <div class="bar-row"><label class="mono" data-i18n="hud.armor">ARMOR</label><div class="bar ar"><i id="ar-bar"></i></div><b class="mono" id="ar-val">0</b></div>
+        <div class="bar thin"><i id="st-bar"></i></div>
+        <div class="items mono">
+          <span data-i18n-title="hud.grenades" title="Grenades">● <b id="gr">2</b> <kbd>G</kbd></span>
+          <span data-i18n-title="hud.medkits" title="Medkits">✚ <b id="mk">1</b> <kbd>H</kbd></span>
+          <span id="buffs"></span>
+        </div>
+      </div>
+
+      <!-- weapon -->
+      <div class="weapon panel" id="weapon-panel">
+        <div class="w-name" id="w-name">M1911 Pistol</div>
+        <div class="w-ammo mono"><b id="w-mag">12</b><span>/</span><em id="w-res">60</em></div>
+        <div class="w-reload"><i id="w-rl"></i></div>
+        <div class="w-status mono" id="w-status"></div>
+        <div class="w-hint mono desktop-only"><kbd>Q</kbd><kbd>E</kbd> / <kbd>1-9</kbd> · <kbd>Tab</kbd> <kbd>R</kbd></div>
+      </div>
+
+      <div id="vehicle-hud" class="vehicle panel hidden">
+        <div class="v-name" id="v-name">Yellow Cab</div>
+        <div class="v-speed mono"><b id="v-speed">0</b> km/h</div>
+        <div class="bar hp"><i id="v-hp"></i></div>
+      </div>
+
+      <div id="prompt" class="prompt hidden"><kbd>F</kbd><span id="prompt-text"></span><i id="prompt-hold"></i></div>
+      <div id="arrow" class="arrow hidden"><span>▲</span><em id="arrow-d"></em></div>
+      <div id="toasts" class="toasts"></div>
+
+      <!-- mobile -->
+      <div id="touch" class="touch-only">
+        <div id="joy-zone" class="stick-zone left"><div class="stick-base" id="joy-base"><div class="stick-knob" id="joy-knob"></div></div></div>
+        <div id="aim-zone" class="stick-zone right"><div class="stick-base aim" id="aim-base"><div class="stick-knob" id="aim-knob"></div></div></div>
+        <div class="t-buttons">
+          <button class="t-btn" id="t-reload" data-i18n="btn.reload">RELOAD</button>
+          <button class="t-btn" id="t-weapon" data-i18n="btn.weapon">WEAPON</button>
+          <button class="t-btn" id="t-grenade">● G</button>
+          <button class="t-btn" id="t-med">✚ H</button>
+          <button class="t-btn primary" id="t-use">F</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- arsenal -->
+    <div id="wheel" class="modal hidden">
+      <div class="wheel-card">
+        <div class="modal-head"><h3 data-i18n="wheel.title">ARSENAL</h3><button class="close" data-close>✕</button></div>
+        <h4 class="mono" data-i18n="wheel.guns">FIREARMS</h4>
+        <div class="w-grid" id="w-guns"></div>
+        <h4 class="mono" data-i18n="wheel.heavy">HEAVY & CANNONS</h4>
+        <div class="w-grid" id="w-heavy"></div>
+      </div>
+    </div>
+
+    <div id="help" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head"><h3 data-i18n="help.title">Controls</h3><button class="close" data-close>✕</button></div>
+        <p data-i18n="help.body"></p>
+        <p class="muted" data-i18n="help.mobile"></p>
+        <button class="cta" data-close data-i18n="pause.resume">Resume</button>
+      </div>
+    </div>
+
+    <div id="over" class="screen hidden">
+      <div class="center">
+        <h1 class="big red" data-i18n="over.title">YOU DIED</h1>
+        <p data-i18n="over.sub"></p>
+        <button class="cta" id="btn-retry" data-i18n="over.retry">Retry</button>
+      </div>
+    </div>
+
+    <div id="end" class="screen hidden">
+      <div class="center">
+        <div class="kicker mono">NEW YORK CITY · 2026</div>
+        <h1 class="big" data-i18n="end.title">EVACUATED</h1>
+        <p data-i18n="end.sub"></p>
+        <p class="mono" id="end-stats"></p>
+        <button class="cta" id="btn-again" data-i18n="end.again">Play again</button>
+      </div>
+    </div>
+
+    <div id="title" class="screen title">
+      <button class="lang-toggle title-lang mono" id="btn-lang-title">中文</button>
+      <div class="center">
+        <div class="kicker mono" data-i18n="title.kicker">DAY 1 OF THE OUTBREAK</div>
+        <h1 class="logo">OUTBREAK<span>NYC</span></h1>
+        <div class="sub mono" data-i18n="title.sub">NEW YORK CITY · 2026</div>
+        <div id="intro" class="intro"></div>
+        <div class="title-actions">
+          <button class="cta" id="btn-start" data-i18n="title.start">Start New Game</button>
+          <button class="text-btn hidden" id="btn-load" data-i18n="title.load">Continue</button>
+        </div>
+        <div class="tagline mono" data-i18n="title.tagline"></div>
+      </div>
+      <div id="loading" class="loading mono" data-i18n="title.loading">Loading…</div>
+    </div>
+    <div id="fade" class="fade"></div>
+  </div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
