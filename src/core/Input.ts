@@ -66,6 +66,8 @@ export class Input {
       id = e.pointerId; zone.setPointerCapture(id);
       const r = zone.getBoundingClientRect();
       cx = e.clientX; cy = e.clientY;
+      const h = base.offsetWidth / 2;
+      base.style.right = 'auto'; base.style.margin = `${-h}px 0 0 ${-h}px`;
       base.style.left = `${cx - r.left}px`; base.style.top = `${cy - r.top}px`;
       base.classList.add('on');
       stick.active = true; set(e.clientX, e.clientY);
@@ -75,6 +77,7 @@ export class Input {
       if (e.pointerId !== id) return;
       id = null; stick.x = 0; stick.y = 0; stick.active = false;
       knob.style.transform = ''; base.classList.remove('on');
+      base.style.left = base.style.top = base.style.right = base.style.margin = ''; // back to the CSS home spot
     };
     zone.addEventListener('pointerup', end);
     zone.addEventListener('pointercancel', end);
