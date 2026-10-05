@@ -14,6 +14,8 @@ import { HUD, type MapDot } from '../ui/HUD';
 import { MISSIONS, WEAPON_CRATES } from '../data/missions';
 import { weaponById } from '../data/weapons';
 import { t, tr } from '../i18n/i18n';
+import { PostFX, type Quality } from '../render/PostFX';
+import { EXRLoader } from 'three/examples/jsm/loaders/EXRLoader.js';
 import type { Circle } from '../world/Collision';
 
 const SAVE_KEY = 'outbreak-nyc:save';
@@ -61,12 +63,16 @@ export class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.15;
+    this.renderer.toneMappingExposure = 1.25;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.cam = new CameraRig(innerWidth / innerHeight);
     this.city = new City(this.scene, this.mobile);
-    this.city.group.traverse((o) => { const m = o as THREE.Mesh; if (m.isMesh && Array.isArray(m.material) && m.geometry.type === 'BoxGeometry') this.buildings.push(m); });
+    this.city.group.traverse((o) => { if (o.userData.building) this.buildings.push(o as THREE.Mesh); });
+    let q: Quality = this.mobile ? 'medium' : 'high';
+    try { const saved = localStorage.getItem('outbreak-nyc:quality') as Quality | null; if (saved) q = saved; } catch { /* noop */ }
+    this.post = new PostFX(this.renderer, this.scene, this.cam.camera, q);
+    this.loadEnvironment();
     this.fx = new FX(this.scene, this.mobile);
     this.zombies = new ZombieManager(this.scene, this.city.collision, (x, z) => this.city.isOpen(x, z, 0.8), this.mobile);
     this.pickups = new PickupManager(this.scene);
@@ -164,6 +170,8 @@ export class Game {
     for (const ev of ['pointerup', 'pointerleave', 'pointercancel']) use.addEventListener(ev, () => this.input.hold('f', false));
     $('btn-sound').onclick = () => { const m = this.audio.toggleMute(); $('btn-sound').textContent = m ? '🔇' : '🔊'; };
     $('btn-retry').onclick = () => this.retry();
+    $('btn-quality').onclick = () => this.cycleQuality();
+    $('btn-quality').textContent = this.post.quality[0].toUpperCase() + 'Q';
     $('btn-again').onclick = () => { localStorage.removeItem(SAVE_KEY); location.reload(); };
     // wheel → zoom
     this.renderer.domElement.addEventListener('wheel', (e) => { e.preventDefault(); if (this.running) this.cam.zoomBy(Math.exp((e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY) * 0.0012)); }, { passive: false });
@@ -206,7 +214,29 @@ export class Game {
     this.kills = s.kills; this.time = s.time;
   }
 
-  private resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.cam.resize(innerWidth, innerHeight); }
+  private resize() { this.renderer.setSize(innerWidth, innerHeight, false); this.cam.resize(innerWidth, innerHeight); this.post?.setSize(innerWidth, innerHeight); }
+
+  post!: PostFX;
+  /** CC0 night-city HDRI (Poly Haven via @pmndrs/assets) for image-based lighting & reflections */
+  private async loadEnvironment() {
+    try {
+      const url = (await import('@pmndrs/assets/hdri/night.exr')).default as string;
+      const hdr = await new EXRLoader().loadAsync(url);
+      const pmrem = new THREE.PMREMGenerator(this.renderer);
+      this.scene.environment = pmrem.fromEquirectangular(hdr).texture;
+      this.scene.environmentIntensity = 0.55;
+      hdr.dispose(); pmrem.dispose();
+    } catch (e) { console.warn('HDRI failed', e); }
+  }
+
+  cycleQuality() {
+    const order: Quality[] = ['high', 'medium', 'low'];
+    const q = order[(order.indexOf(this.post.quality) + 1) % 3];
+    this.post.setQuality(q);
+    try { localStorage.setItem('outbreak-nyc:quality', q); } catch { /* noop */ }
+    this.hud.toast(`${tr({ en: 'Graphics', zh: '畫質' })}: ${{ high: tr({ en: 'High', zh: '高' }), medium: tr({ en: 'Medium', zh: '中' }), low: tr({ en: 'Low', zh: '低' }) }[q]}`);
+    const b = document.getElementById('btn-quality'); if (b) b.textContent = q[0].toUpperCase() + 'Q';
+  }
 
   // ------------------------------------------------------------------ events
   private onKill(z: Zombie) {
@@ -369,6 +399,7 @@ export class Game {
     const inp = this.input, hud = this.hud;
     if (inp.hit('escape')) { if (hud.modalOpen) hud.closeModals(); else hud.toggle('help'); }
     if (inp.hit('m')) document.getElementById('btn-sound')!.click();
+    if (inp.hit('v')) this.cycleQuality();
     if (inp.hit('l')) document.getElementById('btn-lang')!.click();
     if (inp.hit('tab')) hud.toggle('wheel');
     if (inp.hit('?')) hud.toggle('help');
@@ -411,7 +442,7 @@ export class Game {
     this.cam.update(paused ? 0 : dt, this.driving ? this.driving.position.clone().add(new THREE.Vector3(Math.sin(this.driving.heading), 0, Math.cos(this.driving.heading)).multiplyScalar(this.driving.speed * 0.25)) : this.player.position, this.buildings);
     if (this.shakeAmt > 0.01) { this.cam.camera.position.x += (Math.random() - 0.5) * this.shakeAmt; this.cam.camera.position.y += (Math.random() - 0.5) * this.shakeAmt; }
     this.shakeAmt *= Math.exp(-dt * 8);
-    this.renderer.render(this.scene, this.cam.camera);
+    this.post.render(dt, this.cam.camera.position.distanceTo(this.driving ? this.driving.position : this.player.position), Math.min(1, this.player.hurtFlash));
     this.adaptQuality(dt);
   };
 
@@ -550,6 +581,7 @@ export class Game {
     if (this.frameAcc < 2) return;
     const avg = this.frameAcc / this.frameN;
     this.frameAcc = 0; this.frameN = 0;
+    if (avg > 1 / 28 && this.post.quality === 'high') { this.post.setQuality('medium'); return; }
     if (avg > 1 / 32 && this.pixelRatio > 0.8) { this.pixelRatio = Math.max(0.75, this.pixelRatio - 0.25); this.renderer.setPixelRatio(this.pixelRatio); this.resize(); }
   }
 }

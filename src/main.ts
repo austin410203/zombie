@@ -1,5 +1,6 @@
 import './ui/styles.css';
 import { Game } from './game/Game';
+import { Assets } from './assets/Assets';
 import { STORY } from './data/missions';
 import { applyStatic, onLangChange, t, tr } from './i18n/i18n';
 
@@ -15,6 +16,9 @@ onLangChange(renderIntro);
 
 let game: Game;
 try {
+  try {
+    await Assets.load((p) => ($('loading').textContent = `${t('title.loading')} ${Math.round(p * 100)}%`));
+  } catch (e) { console.warn('Model assets failed to load; using procedural fallbacks', e); }
   game = new Game($('scene') as HTMLCanvasElement);
   (window as unknown as { __game: Game }).__game = game;
   $('loading').classList.add('hidden');

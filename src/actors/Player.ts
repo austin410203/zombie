@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import type { CollisionWorld } from '../world/Collision';
-import { Humanoid } from './Humanoid';
+import { makeRig, type Rig } from './KayRig';
 
 export class Player {
-  rig: Humanoid;
+  rig: Rig;
   object = new THREE.Group();
   radius = 0.4;
   speed = 0;
@@ -22,7 +22,8 @@ export class Player {
 
   constructor() {
     // Detective Jamie Reyes: navy coat, NYPD badge gold accent
-    this.rig = new Humanoid({ coat: 0x1e2a44, accent: 0xd9a63a, skin: 0xc89a74, hair: 0x1a1210 });
+    this.rig = makeRig('player', { coat: 0x1e2a44, accent: 0xd9a63a, skin: 0xc89a74, hair: 0x1a1210 });
+    this.rig.object.traverse((o) => { if ((o as THREE.Mesh).isMesh) o.castShadow = true; });
     this.object.add(this.rig.object);
     const blob = new THREE.Mesh(new THREE.CircleGeometry(0.45, 16), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0.4, depthWrite: false }));
     blob.rotation.x = -Math.PI / 2; blob.position.y = 0.03;

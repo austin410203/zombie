@@ -13,6 +13,13 @@ Reuses the engine pieces of *AI Detective* (character rig, collision, camera, in
 - **5 zombie types**: walker, runner, brute, acid spitter, and the Abomination boss.
 - Minimap, objective arrow, radio transmissions, checkpoint saves (localStorage).
 
+## Graphics
+- CC0 3D models: KayKit city buildings, cars, street props and animated characters (zombies use one shared animation library); Kenney motorcycle. See `CREDITS.md`.
+- Procedural PBR materials (albedo / normal / roughness / metalness / emissive) for asphalt, sidewalks, façades, grass and roofs.
+- Image-based lighting from a night-city HDRI.
+- Post-processing: GTAO ambient occlusion, bloom, depth of field, colour grading (split-toning, vignette, grain, chromatic aberration).
+- Quality presets **HQ / MQ / LQ** (button or **V**); phones default to MQ and quality drops automatically if FPS is low.
+
 ## Controls
 | Desktop | Mobile | |
 |---|---|---|

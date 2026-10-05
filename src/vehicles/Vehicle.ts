@@ -2,6 +2,14 @@ import * as THREE from 'three';
 import type { L } from '../i18n/i18n';
 import type { CollisionWorld } from '../world/Collision';
 import { box, canvasTexture, std } from '../world/props';
+import { Assets, type PropId } from '../assets/Assets';
+
+/** CC0 models: KayKit City Builder cars, Kenney motorcycle */
+const MODEL: Record<string, { id: PropId; scale: number; tint?: number }> = {
+  taxi: { id: 'car_taxi', scale: 4.7 }, police: { id: 'car_police', scale: 4.7 }, sports: { id: 'car_hatchback', scale: 4.9, tint: 0xff6060 },
+  suv: { id: 'car_stationwagon', scale: 4.9, tint: 0x606870 }, pickup: { id: 'car_sedan', scale: 4.8, tint: 0xd09070 },
+  moto: { id: 'motorcycle', scale: 1.35 }, dirtbike: { id: 'motorcycle', scale: 1.25, tint: 0xffa060 },
+};
 
 export interface VehicleDef {
   id: string; name: L; bike: boolean;
@@ -28,6 +36,7 @@ export class Vehicle {
   dead = false;
   occupied = false;
   private wheels: THREE.Object3D[] = [];
+  private spin: THREE.Object3D[] = [];
   private lightbar: THREE.Mesh[] = [];
   private t = 0;
   private lean = 0;
@@ -55,6 +64,30 @@ export class Vehicle {
 
   private build() {
     const d = this.def;
+    const model = MODEL[d.id];
+    if (model && Assets.ready) {
+      const m = Assets.prop(model.id, true);
+      m.scale.setScalar(model.scale);
+      m.traverse((n) => {
+        const mesh = n as THREE.Mesh;
+        if (mesh.isMesh && model.tint !== undefined) (mesh.material as THREE.MeshStandardMaterial).color.multiply(new THREE.Color(model.tint));
+        if (/wheel/i.test(n.name)) this.spin.push(n);
+        if (mesh.isMesh) { const mat = mesh.material as THREE.MeshStandardMaterial; mat.roughness = Math.min(mat.roughness, 0.45); mat.metalness = Math.max(mat.metalness, 0.25); mat.envMapIntensity = 1.2; }
+      });
+      this.object.add(m);
+      if (d.id === 'police') for (const s of [-1, 1]) {
+        const lb = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.14, 0.26), new THREE.MeshBasicMaterial({ color: s < 0 ? 0xff1a1a : 0x1a4aff }));
+        lb.position.set(s * 0.28, 2.05, -0.15); this.object.add(lb); this.lightbar.push(lb);
+      }
+      if (!d.bike) for (const s of [-0.6, 0.6]) { // headlight glow for bloom
+        const hl = new THREE.Mesh(new THREE.PlaneGeometry(0.35, 0.16), new THREE.MeshBasicMaterial({ color: 0xfff2c0 })); hl.position.set(s, 0.72, 2.24); this.object.add(hl);
+        const tl = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 0.12), new THREE.MeshBasicMaterial({ color: 0xff2020 })); tl.position.set(s, 0.85, -2.25); tl.rotation.y = Math.PI; this.object.add(tl);
+      }
+      this.seat.position.set(d.bike ? 0 : -0.4, d.bike ? 0.55 : 0.35, d.bike ? -0.15 : 0.2);
+      this.object.add(this.seat);
+      this.object.traverse((o) => { if ((o as THREE.Mesh).isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+      return;
+    }
     const paint = std(d.color, { metalness: 0.5, roughness: 0.35 });
     const glass = std(0x0e1620, { metalness: 0.9, roughness: 0.08 });
     const dark = std(0x1a1a1a);
@@ -128,6 +161,7 @@ export class Vehicle {
     this.object.rotation.y = this.heading;
     // cosmetics
     for (const w of this.wheels) w.children.forEach((c) => (c.rotation.x += this.speed * dt * 2.5));
+    for (const w of this.spin) w.rotation.x += this.speed * dt * 2.5;
     if (d.bike) { this.lean += (-steer * 0.35 * grip - this.lean) * Math.min(1, dt * 6); this.object.rotation.z = this.lean; }
     for (const [i, l] of this.lightbar.entries()) l.visible = Math.sin(this.t * 14 + i * Math.PI) > 0;
     return impact;

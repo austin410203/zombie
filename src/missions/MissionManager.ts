@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { MISSIONS, type Mission, type Step, type Vec2 } from '../data/missions';
-import { Humanoid } from '../actors/Humanoid';
+import { makeRig, type Rig } from '../actors/KayRig';
 import type { Zombie, ZombieManager } from '../actors/Zombie';
 import type { PickupManager } from '../items/Pickups';
 import { t, tr } from '../i18n/i18n';
@@ -17,7 +17,7 @@ export interface MissionHooks {
   finale: () => void;
 }
 
-interface Survivor { rig: Humanoid; pos: Vec2; progress: number; done: boolean; leave: number }
+interface Survivor { rig: Rig; pos: Vec2; progress: number; done: boolean; leave: number }
 
 export class MissionManager {
   index = 0;
@@ -65,7 +65,7 @@ export class MissionManager {
       case 'collect': for (const [x, zz] of s.points) this.h.pickups.add('sample', x, zz); break;
       case 'rescue':
         for (const p of s.points) {
-          const rig = new Humanoid({ coat: [0x4a6a9a, 0x9a5a3a, 0x6a4a8a][this.survivors.length % 3], accent: 0xdedede, skin: 0xe0b896, hair: 0x2a1a10, skirt: this.survivors.length === 1 });
+          const rig = makeRig('survivor', { coat: [0x4a6a9a, 0x9a5a3a, 0x6a4a8a][this.survivors.length % 3], accent: 0xdedede, skin: 0xe0b896, hair: 0x2a1a10, skirt: this.survivors.length === 1 });
           rig.object.position.set(p[0], 0, p[1]);
           this.scene.add(rig.object);
           this.survivors.push({ rig, pos: p, progress: 0, done: false, leave: 0 });

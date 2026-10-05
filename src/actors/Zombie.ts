@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Humanoid } from './Humanoid';
+import { makeRig, type Rig } from './KayRig';
 import type { CollisionWorld } from '../world/Collision';
 
 export type ZType = 'walker' | 'runner' | 'brute' | 'spitter' | 'boss';
@@ -17,7 +17,9 @@ export const ZDEFS: Record<ZType, ZDef> = {
 let pick = 0;
 export class Zombie {
   object = new THREE.Group();
-  rig: Humanoid;
+  rig: Rig;
+  private hitCd = 0;
+  private glowing = false;
   def: ZDef;
   hp = 0;
   alive = true;
@@ -35,10 +37,10 @@ export class Zombie {
 
   constructor(public type: ZType) {
     const d = (this.def = ZDEFS[type]);
-    this.rig = new Humanoid({ coat: d.coat[pick++ % d.coat.length], accent: type === 'spitter' ? 0x5aa02a : 0x3a2a22, skin: d.skin, hair: 0x2a2a20, skirt: pick % 3 === 0, height: d.scale });
+    this.rig = makeRig(type, { coat: d.coat[pick++ % d.coat.length], accent: type === 'spitter' ? 0x5aa02a : 0x3a2a22, skin: d.skin, hair: 0x2a2a20, skirt: pick % 3 === 0, height: d.scale });
     this.object.add(this.rig.object);
-    this.rig.object.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial; if (m?.isMeshStandardMaterial) { const c = m.clone(); (o as THREE.Mesh).material = c; this.mats.push(c); } });
-    if (type === 'boss') {
+    this.rig.object.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.MeshStandardMaterial; if (m?.isMeshStandardMaterial) { const c = m.clone(); c.userData.baseEmissive = (m.userData.baseEmissive ?? m.emissive).clone(); (o as THREE.Mesh).material = c; this.mats.push(c); } });
+    if (type === 'boss' && !this.rig.act) {
       // mass of fused bodies: extra lumps on the back and shoulders
       const flesh = new THREE.MeshStandardMaterial({ color: 0x8a4a4a, flatShading: true, roughness: 0.7 });
       for (let i = 0; i < 7; i++) {
@@ -54,7 +56,12 @@ export class Zombie {
     this.reset();
   }
 
+  /** reused from the pool: climb out of the ground */
+  private spawned = false;
+
   reset() {
+    if (this.spawned) this.rig.act?.('spawn');
+    this.spawned = true;
     this.hp = this.def.hp;
     this.alive = true;
     this.deadTime = 0;
@@ -65,7 +72,7 @@ export class Zombie {
     this.object.visible = true;
     this.rig.object.rotation.set(0, Math.random() * 6.28, 0);
     this.rig.object.position.y = 0;
-    for (const m of this.mats) m.emissive.setHex(0);
+    for (const m of this.mats) m.emissive.copy(m.userData.baseEmissive ?? new THREE.Color(0));
   }
 
   get position() { return this.object.position; }
@@ -83,7 +90,9 @@ export class Zombie {
     this.groanCd -= dt;
     this.flash = Math.max(0, this.flash - dt * 6);
     const burnGlow = this.burn > 0 ? 0.45 + Math.sin(this.t * 20) * 0.15 : 0;
-    for (const m of this.mats) m.emissive.setRGB(this.flash + burnGlow, this.flash * 0.9 + burnGlow * 0.35, this.flash * 0.9);
+    this.hitCd -= dt;
+    if (this.flash > 0.01 || burnGlow > 0) { for (const m of this.mats) m.emissive.setRGB(this.flash + burnGlow, this.flash * 0.9 + burnGlow * 0.35, this.flash * 0.9); this.glowing = true; }
+    else if (this.glowing) { for (const m of this.mats) m.emissive.copy(m.userData.baseEmissive ?? new THREE.Color(0)); this.glowing = false; }
 
     const dx = target.x - this.position.x, dz = target.z - this.position.z;
     const dist = Math.hypot(dx, dz);
@@ -123,6 +132,7 @@ export class Zombie {
     this.aggro = true;
     const massK = this.type === 'boss' ? 0.05 : this.type === 'brute' ? 0.3 : 1;
     this.knock.x += dirX * knock * massK; this.knock.y += dirZ * knock * massK;
+    if (this.hp > 0 && this.hitCd <= 0 && this.type !== 'boss') { this.rig.act?.('hit'); this.hitCd = 0.8; }
     if (this.hp <= 0) {
       this.alive = false;
       this.rig.setState('dead');
